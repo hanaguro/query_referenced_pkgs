@@ -31,7 +31,7 @@ def check_elf(file):
 
 def extract_file_paths(file_data):
     """
-    ファイルデータから「FILE LIST:」以降のファイルパスを抽出し、
+    与えられたファイルから「FILE LIST:」以降のファイルパスを抽出し、
     先頭に'/'を追加してリストとして返します。
     ディレクトリ（'/'で終わる行）は除外されます。
     """
@@ -56,7 +56,9 @@ def extract_file_paths(file_data):
 def build_package_file_index():
     """
     /var/log/packages/の全ファイルを読み込み、
-    ファイルパス -> パッケージ名のマッピングを作成
+    ファイルパス -> パッケージ名のリストのマッピングを作成
+    
+    同じファイルパスが複数のパッケージに含まれる場合に対応
     """
     packages_dir = Path(PKG_PATH)
     file_to_package = {}
@@ -79,8 +81,10 @@ def build_package_file_index():
                             in_file_list = True
                             continue
                         if in_file_list and line and not line.endswith('/'):
-                            # ファイルパスをキーに、パッケージ名を値として登録
-                            file_to_package[line] = package_file.name
+                            # ファイルパスをキーに、パッケージ名のリストを値として登録
+                            if line not in file_to_package:
+                                file_to_package[line] = []
+                            file_to_package[line].append(package_file.name)
             except Exception as e:
                 print(f"警告: {package_file} の読み込み中にエラー: {e}", file=sys.stderr)
 
@@ -91,14 +95,20 @@ def build_package_file_index():
 def find_package_from_index(filepath, index):
     """
     インデックスから高速にパッケージを検索
+
+    Returns:
+        list: 該当するパッケージ名のリスト（見つからない場合は空リスト）
     """
-    search_path = filepath.lstrip('/')
-    return index.get(search_path)
+    search_path = filepath.lstrip('/')  # 先頭の'/'を削除
+    return index.get(search_path, [])
 
 
 def get_library_variants(libpath):
     """
     ライブラリパスからバージョン番号を段階的に削除したバリアントを生成
+
+    Returns:
+        リスト
     """
     path = Path(libpath)
     variants = [str(path)]
@@ -109,6 +119,8 @@ def get_library_variants(libpath):
     if '.so' not in name:
         return variants
 
+    # 'libfoo.so.1.2.3' -> ['libfoo', '.1.2.3']
+    # 'libfoo.so' -> ['libfoo', '']
     parts = name.split('.so')
     if len(parts) != 2:
         return variants
@@ -116,13 +128,15 @@ def get_library_variants(libpath):
     base = parts[0] + '.so'
     version = parts[1]
 
-    if not version:
+    if not version:  # 空文字の場合はreturn
         return variants
 
+    # ".1.2.3" -> ['1', '2', '3']
     version_parts = version.lstrip('.').split('.')
 
     for i in range(len(version_parts) - 1, 0, -1):
-        shorter_version = '.'.join(version_parts[:i])
+        # [1, 2, 3] -> range(2, 0, -1)
+        shorter_version = '.'.join(version_parts[:i])  # i=2 なら 1.2
         variant = parent / f"{base}.{shorter_version}"
         variants.append(str(variant))
 
@@ -133,7 +147,7 @@ def get_library_variants(libpath):
 
 def query_referenced(cur, path):
     """
-    カーソルを引数で受け取るように変更
+    pathで与えられたファイルを参照しているバイナリファイルを調べる
     """
     sql = 'select realname from depends where realname like ? group by realname;'
     cur.execute(sql, (f'%{path}%',))
@@ -194,14 +208,14 @@ def main():
             ref_paths = query_referenced(cur, v)
 
             for ref in ref_paths:
-                # インデックスから高速検索
-                pkg = find_package_from_index(ref, package_index)
-                if pkg:
+                # インデックスから高速検索（複数パッケージに対応）
+                pkgs = find_package_from_index(ref, package_index)
+                for pkg in pkgs:
                     packages.add(pkg)
 
     conn.close()
 
-    # ソート済みで出力
+    # ソート済みでパッケージ名を出力
     for pkg in sorted(packages):
         print(pkg)
 
