@@ -13,6 +13,7 @@ import magic
 from pathlib import Path
 
 PKG_PATH = '/var/log/packages/'
+DB_PATH = './depends.sql3'
 
 
 def check_elf(file):
@@ -148,7 +149,7 @@ def query_referenced(cur, path):
 
 
 def main():
-    dbname = './depends.sql3'
+    dbname = DB_PATH
     if not os.access(dbname, os.R_OK):
         print("cannot open database:{0}".format(dbname))
         sys.exit(1)
