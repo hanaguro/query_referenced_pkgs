@@ -1,4 +1,4 @@
-# query_referenced_pkgs
+# query_pkg_deps
 
 ## 概要
 こじまみつひろさんのget_depends.pyを使って作成したdepends.sql3を利用し、指定したパッケージに依存しているパッケージを列挙します。  
@@ -7,13 +7,13 @@
 ## 使い方
 同じディレクトリにget_depends.pyで作成したdepends.sql3を置いてください。
 ```
-./query_referenced_pkgs.py <package_name>
+./query_pkg_deps.py <package_name>
 ```
 
 ## 例
 
 ```
-./query_referenced_pkgs.py liblxqt
+./query_pkg_deps.py liblxqt
 lxqt_about
 lxqt_admin
 lxqt_config
