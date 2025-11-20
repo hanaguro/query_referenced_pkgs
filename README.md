@@ -14,9 +14,9 @@
 ```
 
 ## 例
-
 ```
 ./query_pkg_deps.py -r liblxqt
+liblxqtを必要としているパッケージ群
 lxqt_about
 lxqt_admin
 lxqt_config
