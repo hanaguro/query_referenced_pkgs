@@ -270,8 +270,7 @@ def main():
             for ref in ref_paths:
                 # インデックスから高速検索（複数パッケージに対応）
                 pkgs = find_package_from_index(ref, package_index)
-                for pkg in pkgs:
-                    packages.add(pkg)
+                packages.update(pkgs)  # setなのでextend()では駄目
 
     conn.close()
 
