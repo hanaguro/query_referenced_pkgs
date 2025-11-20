@@ -3,17 +3,25 @@
 
 '''
 get_depends.pyで作成した ~/depends.sql3 データベースを元に，
-引数で与えられたPlamo Linuxパッケージを参照しているパッケージを調べる
+引数で与えられたPlamo Linuxパッケージが依存しているパッケージ群か、
+パッケージを必要としているパッケージ群を調べる
 '''
 
 import sqlite3
 import os
 import sys
 import magic
+import getopt
 from pathlib import Path
 
 PKG_PATH = '/var/log/packages/'
 DB_PATH = './depends.sql3'
+
+
+def usage():
+    print("使い方")
+    print(f"<パッケージ>が依存しているパッケージ群を調べる　: {sys.argv[0]} -d(--depends) <パッケージ>")
+    print(f"<パッケージ>を必要としているパッケージ群を調べる: {sys.argv[0]} -r(--rdepends) <パッケージ>")
 
 
 def check_elf(file):
@@ -57,7 +65,7 @@ def build_package_file_index():
     """
     /var/log/packages/の全ファイルを読み込み、
     ファイルパス -> パッケージ名のリストのマッピングを作成
-    
+
     同じファイルパスが複数のパッケージに含まれる場合に対応
     """
     packages_dir = Path(PKG_PATH)
@@ -145,34 +153,76 @@ def get_library_variants(libpath):
     return variants
 
 
-def query_referenced(cur, path):
+def query_deps(cur, opt, path):
     """
     pathで与えられたファイルを参照しているバイナリファイルを調べる
     """
-    sql = 'select realname from depends where realname like ? group by realname;'
+    target1 = ""
+    target2 = ""
+    if opt == "depends":
+        target1 = "path"
+        target2 = "realname"
+    elif opt == "rdepends":
+        target1 = "realname"
+        target2 = "path"
+    else:
+        print(f"不明なオプション: {opt}", file=sys.stderr)
+        sys.exit(2)
+
+    sql = f'select {target1} from depends \
+        where {target1} like ? group by {target1};'
     cur.execute(sql, (f'%{path}%',))
     tgt = [row[0] for row in cur]
 
     paths = []
     for realname in tgt:
-        sql = 'select path from depends where realname=?;'
+        sql = f'select {target2} from depends where {target1}=?;'
         cur.execute(sql, (realname,))
         paths.extend([row[0] for row in cur])
 
     return paths
 
 
+def get_opt():
+    try:
+        opts, args = getopt.getopt(sys.argv[1:],
+                                   "d:r:", ["depends=", "rdepends="])
+    except getopt.GetoptError:
+        usage()
+        sys.exit(2)
+
+    opt = ""
+    arg = ""
+    for o, a in opts:
+        if o in ("-d", "--depends"):
+            if opt:  # すでに指定されている場合
+                usage()
+                sys.exit(2)
+            opt = "depends"
+            arg = a
+        elif o in ("-r", "--rdepends"):
+            if opt:  # すでに指定されている場合
+                usage()
+                sys.exit(2)
+            opt = "rdepends"
+            arg = a
+        else:
+            assert False, "unhundled option"
+            usage()
+
+    return (opt, arg)
+
+
 def main():
-    dbname = DB_PATH
-    if not os.access(dbname, os.R_OK):
-        print("cannot open database:{0}".format(dbname))
-        sys.exit(1)
+    argv = sys.argv[1:]
+    if not argv:
+        usage()
+        sys.exit(2)  # Usage Error なので 2 を返す
 
-    if len(sys.argv) != 2:
-        print(f"使い方: {sys.argv[0]} <パッケージ名>")
-        sys.exit(1)
-
-    arg = sys.argv[1]
+    opt, arg = get_opt()
+    if not opt and not arg:
+        usage()
+        sys.exit(2)
 
     try:
         with open(PKG_PATH+arg, 'r') as f:
@@ -183,6 +233,16 @@ def main():
     except Exception as e:
         print(f"予期せぬファイル操作エラーが発生しました: {e}")
         sys.exit(1)
+
+    dbname = DB_PATH
+    if not os.access(dbname, os.R_OK):
+        print("cannot open database:{0}".format(dbname))
+        sys.exit(1)
+
+    if opt == "depends":
+        print(f"{arg}が依存しているパッケージ群")
+    elif opt == "rdepends":
+        print(f"{arg}を必要としているパッケージ群")
 
     # パッケージインデックスを事前構築（これが高速化のキー）
     package_index = build_package_file_index()
@@ -205,7 +265,7 @@ def main():
                 continue
             already_checked.add(v)
 
-            ref_paths = query_referenced(cur, v)
+            ref_paths = query_deps(cur, opt, v)
 
             for ref in ref_paths:
                 # インデックスから高速検索（複数パッケージに対応）
